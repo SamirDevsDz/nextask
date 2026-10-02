@@ -78,7 +78,7 @@ class Sampler(QObject):
         self._last_disk = self._safe(lambda: psutil.disk_io_counters(perdisk=True)) or {}
         self._last_net = self._safe(lambda: psutil.net_io_counters(pernic=True)) or {}
         self._prev_io = {}
-        self._proc_task = BackgroundTask(_collect_processes, self._procs_done)
+        self._proc_task = BackgroundTask(_collect_processes, self._procs_done, track=False)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)

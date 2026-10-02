@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QLabel
 
 from core.common import IS_WIN, fmt_bytes, fmt_rate, fmt_ts, run_cmd, confirm, info, is_admin
 from core.widgets import Page, TablePanel
+from core import audit
 
 
 def _win_sessions():
@@ -72,7 +73,9 @@ class UsersPage(Page):
         if row[4] == "—":
             return
         if confirm(self, "Déconnecter", f"Déconnecter la session de {row[0]} (les applications restent ouvertes) ?"):
-            info(self, "Résultat", run_cmd(["tsdiscon", row[4]]) or "Commande envoyée.")
+            out = run_cmd(["tsdiscon", row[4]]) or "OK"
+            audit.log("Session : déconnexion", f"{row[0]} (session {row[4]})", out)
+            info(self, "Résultat", out)
 
     def _logoff(self, row):
         if row[4] == "—":
@@ -81,4 +84,6 @@ class UsersPage(Page):
             info(self, "Droits requis", "Fermer la session d'un autre utilisateur nécessite les droits administrateur.")
         if confirm(self, "Fermer la session",
                    f"Fermer la session de {row[0]} ?\nSes applications seront fermées sans sauvegarde."):
-            info(self, "Résultat", run_cmd(["logoff", row[4]]) or "Commande envoyée.")
+            out = run_cmd(["logoff", row[4]]) or "OK"
+            audit.log("Session : fermeture", f"{row[0]} (session {row[4]})", out)
+            info(self, "Résultat", out)

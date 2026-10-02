@@ -150,8 +150,6 @@ class BaselinePage(Page):
         rv.addWidget(self.summary)
         self.diff_tbl = TablePanel(["Catégorie", "Élément", "Changement", "Avant", "Après"])
         self.diff_tbl.set_widths([150, 300, 100, 300, 300])
-        self.diff_tbl.set_empty_text("Choisissez deux états puis « Comparer » pour voir les changements")
-        self.snaps.set_empty_text("Aucune référence — créez-en une sur un poste sain")
         rv.addWidget(self.diff_tbl)
         split.addWidget(right)
         split.setSizes([420, 900])

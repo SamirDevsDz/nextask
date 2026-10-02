@@ -114,7 +114,6 @@ class ServicesPage(Page):
         if out and not out.endswith("OK"):
             info(self, "Résultat", out[-800:] + "\n\nAstuce : la plupart des actions exigent les droits administrateur.")
         self.window().statusBar().showMessage("Terminé", 3000)
-        self.task.busy = False
         self.load()
 
     def _start_type(self, row):

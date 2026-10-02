@@ -54,9 +54,10 @@ class PowerPage(Page):
         grid.setSpacing(12)
         f = psutil.cpu_freq()
         self.max_freq = (f.max if f and f.max else 5000) or 5000
-        self.t_freq = StatTile("Fréquence CPU", COLORS["freq"], max_value=self.max_freq * 1.1)
-        self.t_load = StatTile("Charge CPU", COLORS["cpu"])
-        self.t_bat = StatTile("Batterie", COLORS["disk"])
+        self.t_freq = StatTile("Fréquence CPU", COLORS["freq"], max_value=self.max_freq * 1.1, icon="zap",
+                               value_fmt=lambda v: f"{v:.0f} MHz")
+        self.t_load = StatTile("Charge CPU", COLORS["cpu"], icon="cpu")
+        self.t_bat = StatTile("Batterie", COLORS["disk"], icon="activity")
         grid.addWidget(self.t_freq, 0, 0)
         grid.addWidget(self.t_load, 0, 1)
         grid.addWidget(self.t_bat, 0, 2)
@@ -104,11 +105,11 @@ class PowerPage(Page):
         self.root.addLayout(row)
 
         self.root.addWidget(QLabel("Fréquence par cœur (si exposée par le système)", objectName="section"))
-        self.core_freq = LineGraph(COLORS["freq"], self.max_freq * 1.1)
+        self.core_freq = LineGraph(COLORS["freq"], self.max_freq * 1.1, value_fmt=lambda v: f"{v:.0f} MHz")
         self.core_freq.setMinimumHeight(140)
         self.root.addWidget(self.core_freq, 1)
 
-        self.temp_task = BackgroundTask(read_temperatures, self._temps)
+        self.temp_task = BackgroundTask(read_temperatures, self._temps, track=False)
         self.plan_task = BackgroundTask(list_power_plans, self._plans)
         self.ttimer = QTimer(self)
         self.ttimer.timeout.connect(lambda: self.isVisible() and self.temp_task.start())
@@ -155,8 +156,12 @@ class PowerPage(Page):
 
     def _temps(self, temps):
         if temps:
+            from core import design as d
+            def lvl(t):
+                return ("CRITIQUE", d.T("crit")) if t >= 85 else ("ALERTE", d.T("warn")) if t >= 70 else ("OK", d.T("ok"))
             self.temp_lbl.setText("<br>".join(
-                f"{'🔴' if t >= 85 else '🟠' if t >= 70 else '🟢'} {n} : <b>{t:.0f} °C</b>" for n, t in temps))
+                f"<span style='color:{lvl(t)[1]}'>●</span> {n} : <b>{t:.0f} °C</b> "
+                f"<span style='color:{lvl(t)[1]}'>({lvl(t)[0].lower()})</span>" for n, t in temps))
         else:
             self.temp_lbl.setText("Non disponible. Sous Windows, les capteurs ACPI exigent les droits admin "
                                   "et beaucoup de PC ne les exposent pas. Pour des températures par cœur, "

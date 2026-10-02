@@ -27,7 +27,7 @@ QFrame#sep {{ color: {c['border']}; }}
 
 QListWidget#sidebar {{ background: {c['side']}; border: none; border-right: 1px solid {c['border']};
     padding: 8px 6px; outline: 0; }}
-QListWidget#sidebar::item {{ padding: 9px 10px; border-radius: 8px; margin: 1px 2px; }}
+QListWidget#sidebar::item {{ padding: 6px 10px; border-radius: 8px; margin: 1px 2px; }}
 QListWidget#sidebar::item:hover {{ background: {c['hover']}; }}
 QListWidget#sidebar::item:selected {{ background: {c['sel']}; color: {c['text']}; }}
 QListWidget#sidebar::item:disabled {{ color: {accent}; }}

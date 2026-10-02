@@ -6,16 +6,19 @@ import os
 import sqlite3
 import time
 
-from PySide6.QtCore import QObject, QTimer, Qt, QSettings, QPointF
+from PySide6.QtCore import QObject, QTimer, Qt, QSettings, QPointF, Signal
 from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QSpinBox, QCheckBox, QComboBox, QSlider,
                                QFileDialog, QPushButton, QSplitter, QWidget, QVBoxLayout)
 
 from core.common import APP_NAME, app_data_dir, fmt_bytes, fmt_rate, fmt_ts, confirm
 from core.widgets import Page, LineGraph, TablePanel, COLORS
+from core import audit
 
 
 class Recorder(QObject):
+    event = Signal(str, str)   # (type, détail) — notifications + syslog
+
     def __init__(self, sampler, parent=None):
         super().__init__(parent)
         self.sampler = sampler
@@ -88,6 +91,8 @@ class Recorder(QObject):
             return
         self._last_event[kind] = now
         self.db.execute("INSERT INTO event VALUES (?,?,?)", (now, kind, detail))
+        audit.syslog(f'event="{kind}" detail="{detail}"', "warning")
+        self.event.emit(kind, detail)
 
     def snaps(self, since):
         return self.db.execute("SELECT * FROM snap WHERE ts >= ? ORDER BY ts", (since,)).fetchall()
@@ -275,4 +280,5 @@ class FlightRecorderPage(Page):
     def _clear(self):
         if confirm(self, "Effacer", "Supprimer tout l'historique enregistré ?"):
             self.rec.clear()
+            audit.log("Flight Recorder : historique effacé")
             self.load()

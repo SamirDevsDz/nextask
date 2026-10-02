@@ -84,8 +84,8 @@ class ConnectionsPage(Page):
         self.rows = []
         self.cache = {}
         self.task = BackgroundTask(_collect, self._show, lambda tb: self.table.status.setText(
-            "Accès refusé : relancez en administrateur pour voir toutes les connexions."))
-        self.dns_task = BackgroundTask(_resolve, self._resolved)
+            "Accès refusé : relancez en administrateur pour voir toutes les connexions."), track=False)
+        self.dns_task = BackgroundTask(_resolve, self._resolved, track=False)
         self.timer = QTimer(self)
         self.timer.timeout.connect(lambda: self.isVisible() and self.task.start())
         self.timer.start(3000)

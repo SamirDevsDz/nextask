@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QLabel
 
 from core.common import app_data_dir, fmt_bytes, fmt_duration, fmt_ts, confirm
 from core.widgets import Page, TablePanel
+from core import audit
 
 
 class AppHistoryTracker(QObject):
@@ -115,4 +116,5 @@ class AppHistoryPage(Page):
     def _reset(self):
         if confirm(self, "Réinitialiser", "Effacer tout l'historique des applications ?"):
             self.tracker.reset()
+            audit.log("App history : réinitialisation")
             self.refresh()

@@ -118,6 +118,7 @@ class StartupPage(Page):
         self.table.add_context("Désactiver", lambda r: self._toggle(False))
         self.table.add_context("Ouvrir l'emplacement du fichier",
                                lambda r: open_location(_exe_from_cmd(r[3])))
+        self.table.set_empty_text("Aucun programme au démarrage détecté — cliquez sur Actualiser")
         self.root.addWidget(self.table, 1)
         self.items = []
         self.task = BackgroundTask(_collect, self._show)

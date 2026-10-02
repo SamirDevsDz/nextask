@@ -11,8 +11,6 @@ from PySide6.QtWidgets import (QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QL
 from core import audit
 from core.common import IS_WIN, BackgroundTask, run_cmd, powershell, ps_json, as_list, confirm, is_admin, fmt_ts, fmt_bytes
 from core.widgets import Page, TablePanel, STATUS_COLORS
-from core import design as d
-from core import icons
 
 
 # ===================================================================== actions
@@ -25,10 +23,10 @@ def _purge(patterns):
     """Supprime le contenu des dossiers donnés (fichiers verrouillés ignorés)."""
     freed, errors, n = 0, 0, 0
     for pat in patterns:
-        for folder in glob.glob(os.path.expandvars(pat)):
-            if not os.path.isdir(folder):
+        for d in glob.glob(os.path.expandvars(pat)):
+            if not os.path.isdir(d):
                 continue
-            for entry in os.scandir(folder):
+            for entry in os.scandir(d):
                 try:
                     if entry.is_dir(follow_symlinks=False):
                         size = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(entry.path) for f in fs
@@ -135,16 +133,11 @@ class ToolboxPage(Page):
     def __init__(self, sampler, parent=None):
         super().__init__(sampler, parent)
         tabs = QTabWidget()
-        self.tabs = tabs
         self.root.addWidget(tabs, 1)
         tabs.addTab(self._build_repairs(), "Réparations")
         tabs.addTab(self._build_wu(), "Windows Update")
         tabs.addTab(self._build_audit(), "Journal d'audit")
         tabs.currentChanged.connect(lambda i: i == 2 and self.load_audit())
-
-    def tabs_audit(self):
-        self.tabs.setCurrentIndex(2)
-        self.load_audit()
 
     # ------------------------------------------------------------ réparations
     def _build_repairs(self):
@@ -154,8 +147,8 @@ class ToolboxPage(Page):
         split = QSplitter()
         self.list = QListWidget(objectName="perfList")
         for title, desc, admin, _, _ in ACTIONS:
-            it = QListWidgetItem(icons.icon("admin" if admin else "wrench", d.T("warn") if admin else d.T("text2"), 16), title)
-            it.setToolTip(desc + ("\n(droits administrateur requis)" if admin else ""))
+            it = QListWidgetItem(("🛡 " if admin else "") + title)
+            it.setToolTip(desc)
             self.list.addItem(it)
         self.list.currentRowChanged.connect(self._select)
         split.addWidget(self.list)
@@ -176,13 +169,12 @@ class ToolboxPage(Page):
         rv.addLayout(hb)
         self.out = QPlainTextEdit()
         self.out.setReadOnly(True)
-        self.out.setPlaceholderText("La sortie de l'action s'affichera ici.")
         self.out.setStyleSheet("font-family: Consolas, 'Cascadia Mono', monospace;")
         rv.addWidget(self.out, 1)
         split.addWidget(right)
         split.setSizes([320, 700])
         v.addWidget(split, 1)
-        v.addWidget(QLabel("Icône bouclier orange = droits administrateur requis. Chaque exécution est inscrite au journal d'audit.",
+        v.addWidget(QLabel("🛡 = droits administrateur requis. Chaque exécution est inscrite au journal d'audit.",
                            objectName="muted"))
         self.task = BackgroundTask(lambda f: f(), self._done)
         if not IS_WIN:
@@ -192,7 +184,7 @@ class ToolboxPage(Page):
 
     def _select(self, i):
         title, desc, admin, _, _ = ACTIONS[i]
-        warn = "" if not admin or is_admin() else "<br><span style='color:" + d.T("warn") + "'>Relancez NexTask en administrateur.</span>"
+        warn = "" if not admin or is_admin() else "<br><span style='color:#f59e0b'>Relancez NexTask en administrateur.</span>"
         self.desc.setText(f"<b>{title}</b><br>{desc}{warn}")
         self.go.setEnabled(True)
 

@@ -54,26 +54,71 @@ def fmt_ts(ts) -> str:
 NO_WINDOW = 0x08000000 if IS_WIN else 0
 
 
+def _decode(raw: bytes) -> str:
+    if not raw:
+        return ""
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff") or raw.count(b"\x00") > len(raw) // 4:
+        return raw.decode("utf-16-le", "replace").replace("\ufeff", "").replace("\x00", "")
+    for enc in ("utf-8", "cp850", "cp1252"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("latin-1", "replace")
+
+
 def run_cmd(args, timeout=30) -> str:
-    """Exécute une commande et renvoie stdout (texte). Ne lève jamais."""
+    """Exécute une commande et renvoie stdout (+ stderr) en texte. Ne lève jamais."""
     try:
         out = subprocess.run(
             args, capture_output=True, timeout=timeout,
             creationflags=NO_WINDOW, shell=isinstance(args, str),
         )
-        raw = out.stdout or out.stderr
-        for enc in ("utf-8", "cp850", "cp1252", "latin-1"):
-            try:
-                return raw.decode(enc)
-            except UnicodeDecodeError:
-                continue
-        return raw.decode("utf-8", "replace")
+        txt = _decode(out.stdout)
+        err = _decode(out.stderr)
+        return (txt + ("\n" + err if err.strip() else "")) if txt.strip() else err
+    except subprocess.TimeoutExpired:
+        return f"ERREUR: délai dépassé ({timeout} s)"
     except Exception as e:  # noqa: BLE001
         return f"ERREUR: {e}"
 
 
+PS_PREFIX = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+             "$ProgressPreference='SilentlyContinue';")
+
+
 def powershell(script: str, timeout=60) -> str:
-    return run_cmd(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], timeout)
+    return run_cmd(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                    "-Command", PS_PREFIX + script], timeout)
+
+
+def ps_json(script: str, timeout=90):
+    """Exécute un script PowerShell terminé par ConvertTo-Json ; renvoie liste/dict ou None."""
+    import json
+    out = powershell(script, timeout).strip()
+    start = min([i for i in (out.find("["), out.find("{")) if i >= 0] or [-1])
+    if start < 0:
+        return None
+    try:
+        return json.loads(out[start:])
+    except ValueError:
+        # stderr éventuellement accolé : on tente jusqu'au dernier crochet/accolade
+        end = max(out.rfind("]"), out.rfind("}"))
+        try:
+            return json.loads(out[start:end + 1])
+        except ValueError:
+            return None
+
+
+def as_list(obj):
+    if obj is None:
+        return []
+    return obj if isinstance(obj, list) else [obj]
+
+
+def ps_quote(s: str) -> str:
+    """Chaîne PowerShell entre apostrophes, échappée."""
+    return "'" + str(s).replace("'", "''") + "'"
 
 
 def is_admin() -> bool:

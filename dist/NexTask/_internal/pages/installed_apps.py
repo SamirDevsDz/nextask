@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QCheckBox
 
 from core.common import IS_WIN, BackgroundTask, fmt_bytes, run_cmd, powershell, open_location, confirm, info
 from core.widgets import Page, TablePanel
+from core import audit
 
 if IS_WIN:
     import winreg
@@ -130,5 +131,7 @@ class InstalledAppsPage(Page):
         if confirm(self, "Désinstaller", f"Lancer la désinstallation de « {row[0]} » ?\n\nCommande :\n{cmd}"):
             try:
                 subprocess.Popen(cmd, shell=True)
+                audit.log("Désinstallation lancée", f"{row[0]} {row[1]}")
             except OSError as e:
+                audit.log("Désinstallation lancée", row[0], f"ÉCHEC : {e}")
                 info(self, "Erreur", str(e))

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QL
 from core import audit
 from core import security_checks as sc
 from core.common import IS_WIN, BackgroundTask, open_location, confirm, info, powershell, ps_quote
-from core.widgets import Page, TablePanel, STATUS_COLORS, RingGauge, AlertList, SERIES
+from core.widgets import Page, TablePanel, STATUS_COLORS
 
 
 def _st(level):
@@ -57,9 +57,8 @@ class SecurityPage(Page):
     # ============================================================ bilan
     def _build_posture(self):
         t = _Tab("Lancer le bilan", "Antivirus, pare-feu, BitLocker, UAC, SMBv1, RDP/NLA, LSA, mises à jour…")
-        self.score = RingGauge("", SERIES["cpu"], size=64, thickness=7, suffix="")
-        self.score.set_value(0, text="—")
-        self.score.setToolTip("Score de sécurité /100")
+        self.score = QLabel("—")
+        self.score.setStyleSheet("font-size: 26px; font-weight: 700;")
         t.top.insertWidget(0, self.score)
         self.posture_tbl = TablePanel(["Gravité", "Catégorie", "Contrôle", "Valeur", "Recommandation"])
         self.posture_tbl.set_widths([90, 120, 260, 300, 400])
@@ -76,8 +75,9 @@ class SecurityPage(Page):
     def _posture_done(self, checks):
         self.last["posture"] = checks
         score = sc.posture_score(checks)
-        col = SERIES["disk"] if (score or 0) >= 80 else SERIES["net"] if (score or 0) >= 60 else "#f87171"
-        self.score.set_value(score or 0, color=col, text=str(score) if score is not None else "—")
+        col = ("gray" if score is None else "#22c55e" if score >= 80 else "#f59e0b" if score >= 60 else "#ef4444")
+        self.score.setText(f"{score}/100" if score is not None else "—")
+        self.score.setStyleSheet(f"font-size: 26px; font-weight: 700; color: {col};")
         n_crit = sum(c["status"] == "CRITIQUE" for c in checks)
         n_warn = sum(c["status"] == "ALERTE" for c in checks)
         self.t_posture.state.setText(f"{len(checks)} contrôles • {n_crit} critique(s) • {n_warn} alerte(s)"
@@ -225,7 +225,8 @@ class SecurityPage(Page):
         self.period = QComboBox()
         self.period.addItems(["24 h", "72 h", "7 jours"])
         t.top.insertWidget(1, self.period)
-        self.alerts_lbl = AlertList()
+        self.alerts_lbl = QLabel("")
+        self.alerts_lbl.setWordWrap(True)
         t.lay.addWidget(self.alerts_lbl)
         tb = TablePanel(["Gravité", "Date", "Journal", "ID", "Événement", "Utilisateur", "Source / IP", "Détail"],
                         right_cols=(3,))
@@ -246,8 +247,11 @@ class SecurityPage(Page):
     def _events_done(self, res):
         events, alerts, notes = res
         self.last["events"] = res
-        items = list(alerts[:6]) + [("INFO", n) for n in notes[:2]]
-        self.alerts_lbl.set_items(items or [("OK", "Rien d'anormal sur la période")])
+        col = {"CRITIQUE": "#ef4444", "ALERTE": "#f59e0b", "INFO": "#60a5fa"}
+        html = "<br>".join(f"<span style='color:{col.get(s, '')}'>● {m}</span>" for s, m in alerts[:12])
+        if notes:
+            html += "<br><span style='color:gray'>" + "<br>".join(notes) + "</span>"
+        self.alerts_lbl.setText(html or "<span style='color:#22c55e'>● Rien d'anormal sur la période</span>")
         self.t_events.state.setText(f"{len(events)} événement(s)")
         self.events_tbl.set_rows([[_st(e["sev"]), (e["t"], e["t"]), e["log"], e["id"], e["label"], e["user"], e["src"],
                                    e["detail"]] for e in events])

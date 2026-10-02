@@ -7,6 +7,7 @@ import time
 
 from core.common import IS_WIN, BackgroundTask, open_location, confirm, info
 from core.widgets import Page, TablePanel
+from core import audit
 
 if IS_WIN:
     import winreg
@@ -148,7 +149,9 @@ class StartupPage(Page):
             return
         try:
             set_enabled(item, enabled)
+            audit.log("Démarrage : " + ("activation" if enabled else "désactivation"), item["name"])
         except PermissionError:
+            audit.log("Démarrage : " + verb, item["name"], "ÉCHEC : accès refusé")
             info(self, "Accès refusé", "Les entrées HKLM / dossier commun nécessitent les droits administrateur.")
             return
         except OSError as e:

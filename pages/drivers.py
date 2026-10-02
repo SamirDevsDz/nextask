@@ -68,6 +68,8 @@ class DriversPage(Page):
         self.kernel.set_widths([160, 280, 90, 100, 400])
         self.err = TablePanel(["Périphérique", "Classe", "Code erreur", "Statut", "ID matériel"])
         self.err.set_widths([280, 110, 90, 90, 400])
+        self.pnp.set_empty_text("Inventaire des pilotes via WMI (Windows) — cliquez sur Actualiser")
+        self.err.set_empty_text("Aucun périphérique en erreur")
         self.tabs.addTab(self.pnp, "Pilotes de périphériques")
         self.tabs.addTab(self.kernel, "Pilotes noyau")
         self.tabs.addTab(self.err, "Périphériques en erreur")

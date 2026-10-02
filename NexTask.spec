@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('core', 'core'), ('pages', 'pages')],
+    datas=[('core', 'core'), ('pages', 'pages'), ('nextask.ico', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -33,6 +33,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
+    icon=['nextask.ico'],
 )
 coll = COLLECT(
     exe,

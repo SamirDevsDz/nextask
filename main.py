@@ -1,21 +1,24 @@
-"""NexTask — gestionnaire des tâches alternatif (Python + PySide6).
+"""NexTask — console d'administration et de supervision Windows (Python + PySide6).
 
 Lancer :  python main.py        (idéalement en administrateur sous Windows)
+Raccourcis : Ctrl+K palette · Ctrl+B menu · Ctrl+1…9 pages · Ctrl+T thème · F5 actualiser
 """
 import os
 import sys
 
-from PySide6.QtCore import Qt, QSettings, QSize
-from PySide6.QtGui import QFont, QFontDatabase, QIcon, QAction
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QListWidget,
-                               QListWidgetItem, QStackedWidget, QLabel, QComboBox, QPushButton,
-                               QStatusBar, QSystemTrayIcon, QMenu, QStyle)
+from PySide6.QtCore import QSettings, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QIcon, QAction
+from PySide6.QtWidgets import (QApplication, QMainWindow, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel,
+                               QSystemTrayIcon, QMenu, QStyle, QGraphicsOpacityEffect, QWidget)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.common import APP_NAME, IS_WIN, is_admin, relaunch_as_admin, fmt_duration  # noqa: E402
+from core import design  # noqa: E402
+from core.common import APP_NAME, IS_WIN, is_admin, relaunch_as_admin, fmt_duration, tracker  # noqa: E402
 from core.sampler import Sampler  # noqa: E402
+from core.shell import (Sidebar, TopBar, BusyBar, CommandPalette, Central, ToastStatusBar, shortcut)  # noqa: E402
 from core.theme import stylesheet  # noqa: E402
+from core.widgets import IconChip  # noqa: E402
 from pages.summary import SummaryPage  # noqa: E402
 from pages.performance import PerformancePage  # noqa: E402
 from pages.processes import ProcessesPage  # noqa: E402
@@ -38,157 +41,240 @@ from pages.identity import IdentityPage  # noqa: E402
 from pages.report import ReportPage  # noqa: E402
 from pages.settings import SettingsPage  # noqa: E402
 
-# (glyphe Segoe Fluent/MDL2, libellé, classe) — chaîne seule = séparateur de section
-MENU = [
-    ("\uE80F", "Summary", SummaryPage),
-    ("\uE9D2", "Performance", PerformancePage),
-    ("\uE9F5", "Processes", ProcessesPage),
-    ("\uE946", "System Info", SysInfoPage),
-    ("\uE81C", "App history", AppHistoryPage),
-    ("\uE768", "Startup apps", StartupPage),
-    ("\uE716", "Users", UsersPage),
-    ("\uE90F", "Services", ServicesPage),
-    "PRO",
-    ("\uE945", "Power & Freq", PowerPage),
-    ("\uE724", "Flight Recorder", FlightRecorderPage),
-    ("\uE774", "Connections", ConnectionsPage),
-    ("\uE8FD", "Installed Apps", InstalledAppsPage),
-    ("\uE950", "Drivers", DriversPage),
-    ("\uEDA2", "Disk Space", DiskSpacePage),
-    "ADMIN",
-    ("\uEA18", "Security", SecurityPage),
-    ("\uE839", "Network Tools", NetworkToolsPage),
-    ("\uEC7A", "Toolbox", ToolboxPage),
-    ("\uE722", "Baseline", BaselinePage),
-    ("\uE77B", "Identity & Shares", IdentityPage),
-    ("\uE8A5", "Report", ReportPage),
-    "",
-    ("\uE713", "Settings", SettingsPage),
+# Architecture de l'information : 5 groupes métier + paramètres en pied de menu
+NAV = [
+    ("Surveillance", [
+        ("grid", "Vue d'ensemble", SummaryPage),
+        ("activity", "Performance", PerformancePage),
+        ("list", "Processus", ProcessesPage),
+        ("zap", "Énergie & fréquence", PowerPage),
+        ("record", "Enregistreur", FlightRecorderPage),
+        ("history", "Historique des apps", AppHistoryPage),
+    ]),
+    ("Système", [
+        ("info", "Infos système", SysInfoPage),
+        ("play", "Démarrage", StartupPage),
+        ("sliders", "Services", ServicesPage),
+        ("chip", "Pilotes", DriversPage),
+        ("package", "Logiciels", InstalledAppsPage),
+        ("drive", "Espace disque", DiskSpacePage),
+        ("users", "Utilisateurs", UsersPage),
+    ]),
+    ("Réseau", [
+        ("globe", "Connexions", ConnectionsPage),
+        ("radar", "Outils réseau", NetworkToolsPage),
+    ]),
+    ("Sécurité", [
+        ("shield", "Sécurité", SecurityPage),
+        ("layers", "Référence (baseline)", BaselinePage),
+        ("key", "Identité & partages", IdentityPage),
+    ]),
+    ("Opérations", [
+        ("wrench", "Dépannage", ToolboxPage),
+        ("file", "Rapport de diagnostic", ReportPage),
+    ]),
 ]
-
-
-def icon_font():
-    fams = set(QFontDatabase.families())
-    for f in ("Segoe Fluent Icons", "Segoe MDL2 Assets"):
-        if f in fams:
-            return f
-    return None
+FOOTER = [("gear", "Paramètres", SettingsPage)]
+RATES = [500, 1000, 2000, 5000]
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = QSettings(APP_NAME, APP_NAME)
-        self.setWindowTitle(f"{APP_NAME} — Gestionnaire des tâches" + ("  [Administrateur]" if is_admin() else ""))
-        self.resize(1280, 800)
+        self.setWindowTitle(f"{APP_NAME} — Console d'administration" + ("  [Administrateur]" if is_admin() else ""))
+        self.resize(1400, 860)
+        self.setMinimumSize(1080, 680)
+        self.mode = self.settings.value("theme", "dark")
+        design.set_mode(self.mode)
 
         self.sampler = Sampler(self)
         self.history = AppHistoryTracker(self.sampler)
         self.recorder = Recorder(self.sampler)
 
-        central = QWidget(objectName="central")
-        lay = QHBoxLayout(central)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-        self.side = QListWidget(objectName="sidebar")
-        self.side.setFixedWidth(210)
-        self.side.setIconSize(QSize(18, 18))
-        self.stack = QStackedWidget()
-        lay.addWidget(self.side)
-        lay.addWidget(self.stack, 1)
-        self.setCentralWidget(central)
+        # --- structure : [sidebar | (topbar, busy, pages)]
+        self.central = Central()
+        self.setCentralWidget(self.central)
+        h = QHBoxLayout(self.central)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+        entries = [(g, ic, label, cls) for g, items in NAV for ic, label, cls in items]
+        entries += [("", ic, label, cls) for ic, label, cls in FOOTER]
+        self.entries = entries
+        self.nav = Sidebar([(g, [(ic, lb) for ic, lb, _ in items]) for g, items in NAV],
+                           [(ic, lb) for ic, lb, _ in FOOTER])
+        h.addWidget(self.nav)
+        right = QWidget()
+        v = QVBoxLayout(right)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        self.top = TopBar(is_admin(), IS_WIN)
+        v.addWidget(self.top)
+        self.busy = BusyBar()
+        v.addWidget(self.busy)
+        self.stack = QStackedWidget(objectName="pages")
+        v.addWidget(self.stack, 1)
+        h.addWidget(right, 1)
 
-        ifont = icon_font()
         self.pages = []
-        for entry in MENU:
-            if isinstance(entry, str):
-                it = QListWidgetItem(f"{entry}  ─────────────" if entry else "")
-                it.setFlags(Qt.NoItemFlags)
-                f = it.font()
-                f.setPointSize(8)
-                it.setFont(f)
-                self.side.addItem(it)
-                self.pages.append(None)
-                continue
-            glyph, label, cls = entry
-            it = QListWidgetItem(f"{glyph}   {label}" if ifont else label)
-            if ifont:
-                f = QFont()
-                f.setFamilies([ifont, "Segoe UI"])
-                f.setPointSize(10)
-                it.setFont(f)
-            self.side.addItem(it)
+        for group, ic, label, cls in entries:
             kwargs = {}
             if cls is AppHistoryPage:
                 kwargs["tracker"] = self.history
             if cls in (FlightRecorderPage, ReportPage):
                 kwargs["recorder"] = self.recorder
             page = cls(self.sampler, **kwargs)
+            page.set_heading(label)
             self.stack.addWidget(page)
             self.pages.append(page)
-        self.side.currentRowChanged.connect(self._switch)
+        self.nav.selected.connect(self._switch)
+        self.nav.set_collapsed(self.settings.value("ui/collapsed", False, type=bool), animate=False)
 
-        # barre d'état
-        sb = QStatusBar()
+        # --- barre d'état fine (les messages des pages deviennent des toasts)
+        sb = ToastStatusBar(self.central)
         self.setStatusBar(sb)
         self.lbl = QLabel("")
         sb.addWidget(self.lbl, 1)
-        admin = QLabel("● Administrateur" if is_admin() else "● Utilisateur standard (droits limités)")
-        admin.setObjectName("badgeAdmin" if is_admin() else "badgeUser")
-        sb.addPermanentWidget(admin)
-        if IS_WIN and not is_admin():
-            b = QPushButton("Relancer en admin")
-            b.clicked.connect(self._elevate)
-            sb.addPermanentWidget(b)
-        sb.addPermanentWidget(QLabel("Rafraîchissement :"))
-        self.rate = QComboBox()
-        self.rate.addItems(["0,5 s", "1 s", "2 s", "5 s"])
-        self.rate.setCurrentIndex(int(self.settings.value("rate", 1)))
-        self.rate.currentIndexChanged.connect(self._rate)
-        sb.addPermanentWidget(self.rate)
-        self.theme_btn = QPushButton()
-        self.theme_btn.clicked.connect(self._toggle_theme)
-        sb.addPermanentWidget(self.theme_btn)
-        self.mode = self.settings.value("theme", "dark")
-        self._apply_theme()
+        self.ver = QLabel(f"{APP_NAME} · v3")
+        sb.addPermanentWidget(self.ver)
 
+        # --- barre supérieure
+        self.top.rate.setCurrentIndex(int(self.settings.value("rate", 1)))
+        self.top.rate.currentIndexChanged.connect(self._rate)
+        self.top.theme_requested.connect(self._toggle_theme)
+        self.top.elevate_requested.connect(self._elevate)
+        self.top.palette_requested.connect(self.open_palette)
+        tracker.changed.connect(self.busy.set_count)
+
+        # --- raccourcis clavier
+        shortcut(self, "Ctrl+K", self.open_palette)
+        shortcut(self, "Ctrl+B", self._toggle_nav)
+        shortcut(self, "Ctrl+T", self._toggle_theme)
+        shortcut(self, "F5", lambda: self.stack.currentWidget().on_show())
+        for n in range(1, 10):
+            shortcut(self, f"Ctrl+{n}", lambda n=n: self.nav.select(n - 1))
+
+        self._apply_theme()
         self._setup_tray()
         self.recorder.event.connect(self._notify)
+        self._events = 0
         self._quitting = False
-
         self.sampler.updated.connect(self._tick)
-        self.sampler.start([500, 1000, 2000, 5000][self.rate.currentIndex()])
-        self.side.setCurrentRow(int(self.settings.value("page", 0)))
+        self.sampler.start(RATES[self.top.rate.currentIndex()])
+        start = str(self.settings.value("page_label", "Vue d'ensemble"))
+        idx = next((i for i, e in enumerate(entries) if e[2] == start), 0)
+        self.nav.select(idx)
 
-    # ------------------------------------------------------------------
-    def _switch(self, row):
-        page = self.pages[row] if 0 <= row < len(self.pages) else None
-        if page is None:
+    # ------------------------------------------------------------ navigation
+    def _switch(self, i):
+        if not 0 <= i < len(self.pages):
             return
+        if getattr(self, "_cur", None) == i and self.stack.currentIndex() == i:
+            self.nav.select(i, emit=False)
+            return
+        page = self.pages[i]
+        group, _, label, _ = self.entries[i]
+        self.nav.select(i, emit=False)
+        self._cur = i
+        self._update_crumb()
         self.stack.setCurrentWidget(page)
-        self.settings.setValue("page", row)
+        self.settings.setValue("page_label", label)
+        if label == "Enregistreur":
+            self._events = 0
+            self.nav.set_badge(i, "")
+        self._fade(page)
         page.on_show()
 
+    def _update_crumb(self):
+        group, _, label, _ = self.entries[self._cur]
+        strong = f"<span style='color:{design.T('text')}; font-weight:600'>{label}</span>"
+        self.top.crumb.setText(f"{group}  <span style='color:{design.T('faint')}'>/</span>  {strong}" if group else strong)
+
+    def _fade(self, w):
+        old = getattr(self, "_fade_anim", None)
+        if old is not None:
+            old.stop()
+            tgt = old.property("page")
+            if tgt is not None:
+                tgt.setGraphicsEffect(None)
+        eff = QGraphicsOpacityEffect(w)
+        w.setGraphicsEffect(eff)
+        a = QPropertyAnimation(eff, b"opacity", w)
+        a.setProperty("page", w)
+        a.setDuration(170)
+        a.setStartValue(0.0)
+        a.setEndValue(1.0)
+        a.setEasingCurve(QEasingCurve.OutCubic)
+        a.finished.connect(lambda: w.graphicsEffect() is eff and w.setGraphicsEffect(None))
+        a.start()
+        self._fade_anim = a
+
+    def goto_cls(self, cls):
+        for i, p in enumerate(self.pages):
+            if isinstance(p, cls):
+                self.nav.select(i)
+                return p
+
+    def open_palette(self):
+        cmds = [(ic, label, group or "Paramètres", (lambda i=i: self.nav.select(i)))
+                for i, (group, ic, label, _) in enumerate(self.entries)]
+
+        def run_page(cls, method):
+            def go():
+                p = self.goto_cls(cls)
+                getattr(p, method)()
+            return go
+        cmds += [
+            ("shield", "Lancer le bilan de sécurité", "Action", run_page(SecurityPage, "run_posture")),
+            ("shield", "Rechercher les processus suspects", "Action", run_page(SecurityPage, "run_procs")),
+            ("shield", "Détecter les outils d'accès à distance", "Action", run_page(SecurityPage, "run_remote")),
+            ("shield", "Analyser la persistance", "Action", run_page(SecurityPage, "run_persist")),
+            ("file", "Générer un rapport de diagnostic", "Action", run_page(ReportPage, "generate")),
+            ("layers", "Comparer à la dernière référence", "Action", run_page(BaselinePage, "_compare")),
+            ("wrench", "Ouvrir le journal d'audit", "Action", lambda: (self.goto_cls(ToolboxPage).tabs_audit())),
+            ("sun" if self.mode == "dark" else "moon", "Basculer le thème", "Ctrl+T", self._toggle_theme),
+            ("menu", "Replier / déplier le menu", "Ctrl+B", self._toggle_nav),
+        ]
+        if IS_WIN and not is_admin():
+            cmds.append(("admin", "Relancer en administrateur", "Action", self._elevate))
+        self._palette = CommandPalette(self, cmds)
+        self._palette.open_centered()
+
+    def _toggle_nav(self):
+        self.nav.toggle_collapsed()
+        self.settings.setValue("ui/collapsed", self.nav.collapsed)
+
+    # ------------------------------------------------------------ rafraîchissement
     def _tick(self):
         s = self.sampler
-        self.lbl.setText(f"CPU {s.cpu:.0f} %   •   Mémoire {s.vm.percent:.0f} %   •   "
-                         f"Processus {len(s.procs)}   •   Démarré depuis {fmt_duration(s.uptime)}")
+        self.top.set_metrics(s.cpu, s.vm.percent)
+        self.lbl.setText(f"{len(s.procs)} processus   ·   démarré depuis {fmt_duration(s.uptime)}   ·   "
+                         f"↓ {s.net_down / 1024:.0f} Ko/s  ↑ {s.net_up / 1024:.0f} Ko/s")
+        self.nav.status_box.setText(f"<span style='color:{'#34d399' if is_admin() else '#fbbf24'}'>●</span> "
+                                    f"{'Session administrateur' if is_admin() else 'Droits limités'}<br>"
+                                    f"Surveillance active · {RATES[self.top.rate.currentIndex()] / 1000:g} s")
         page = self.stack.currentWidget()
         if page is not None:
             page.on_tick()
 
     def _rate(self, i):
-        self.sampler.set_interval([500, 1000, 2000, 5000][i])
+        self.sampler.set_interval(RATES[i])
         self.settings.setValue("rate", i)
 
     def _toggle_theme(self):
         self.mode = "light" if self.mode == "dark" else "dark"
         self.settings.setValue("theme", self.mode)
         self._apply_theme()
+        self.central.toast(f"Thème {'clair' if self.mode == 'light' else 'sombre'} activé", "OK", 2000)
 
     def _apply_theme(self):
         QApplication.instance().setStyleSheet(stylesheet(self.mode))
-        self.theme_btn.setText("Thème clair" if self.mode == "dark" else "Thème sombre")
+        self.top.refresh_theme()
+        for chip in self.findChildren(IconChip):
+            chip.refresh()
+        if hasattr(self, "_cur"):
+            self._update_crumb()
+        self.update()
 
     def _elevate(self):
         if relaunch_as_admin():
@@ -205,7 +291,7 @@ class MainWindow(QMainWindow):
         self.tray = QSystemTrayIcon(icon, self)
         self.tray.setToolTip(APP_NAME)
         m = QMenu()
-        for label, fn in (("Ouvrir NexTask", self._restore), ("Security", lambda: self._goto(SecurityPage)),
+        for label, fn in (("Ouvrir NexTask", self._restore), ("Sécurité", lambda: self._goto(SecurityPage)),
                           ("Rapport de diagnostic", lambda: self._goto(ReportPage)), (None, None),
                           ("Quitter", self._quit)):
             if label is None:
@@ -226,12 +312,14 @@ class MainWindow(QMainWindow):
 
     def _goto(self, cls):
         self._restore()
-        for i, p in enumerate(self.pages):
-            if isinstance(p, cls):
-                self.side.setCurrentRow(i)
+        self.goto_cls(cls)
 
     def _notify(self, kind, detail):
-        if self.tray and self.settings.value("ui/notify", True, type=bool):
+        self._events += 1
+        idx = next(i for i, e in enumerate(self.entries) if e[3] is FlightRecorderPage)
+        self.nav.set_badge(idx, self._events)
+        self.central.toast(f"{kind} — {detail}", "ALERTE", 6000)
+        if self.tray and self.settings.value("ui/notify", True, type=bool) and not self.isActiveWindow():
             self.tray.showMessage(f"{APP_NAME} — {kind}", detail, QSystemTrayIcon.Warning, 8000)
 
     def _quit(self):

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QSpinBox, QCheckBox, QComboB
 
 from core.common import APP_NAME, app_data_dir, fmt_bytes, fmt_rate, fmt_ts, confirm
 from core.widgets import Page, LineGraph, TablePanel, COLORS
+from core import design as d
 from core import audit
 
 
@@ -126,7 +127,7 @@ class TimelineGraph(LineGraph):
         p = QPainter(self)
         r = self.rect().adjusted(1, 1, -1, -1)
         x = r.left() + r.width() * self.marker / (len(self.series) - 1)
-        p.setPen(QPen(QColor("#f59e0b"), 2))
+        p.setPen(QPen(QColor(d.T("warn")), 2))
         p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
         p.end()
 
@@ -141,42 +142,50 @@ class FlightRecorderPage(Page):
     def __init__(self, sampler, recorder, parent=None):
         super().__init__(sampler, parent)
         self.rec = recorder
-        # réglages
-        bar = QHBoxLayout()
+        # réglages (carte) + actions
+        from core.widgets import card
+        cfg, cl = card(QHBoxLayout, (16, 10, 16, 10))
         self.en = QCheckBox("Enregistrement actif")
         self.en.setChecked(recorder.enabled)
         self.iv = self._spin(1, 300, recorder.interval, " s")
         self.ret = self._spin(1, 168, recorder.retention_h, " h")
         self.ct = self._spin(10, 100, recorder.cpu_thr, " %")
         self.mt = self._spin(10, 100, recorder.mem_thr, " %")
-        for w, lbl in ((self.en, None), (self.iv, "Intervalle"), (self.ret, "Rétention"),
-                       (self.ct, "Seuil CPU"), (self.mt, "Seuil RAM")):
-            if lbl:
-                bar.addWidget(QLabel(lbl, objectName="muted"))
-            bar.addWidget(w)
-        for w in (self.en,):
-            w.toggled.connect(self._save)
+        cl.addWidget(self.en)
+        cl.addSpacing(12)
+        for w, lbl in ((self.iv, "Intervalle"), (self.ret, "Rétention"), (self.ct, "Seuil CPU"), (self.mt, "Seuil RAM")):
+            cl.addWidget(QLabel(lbl, objectName="muted"))
+            w.setMinimumWidth(84)
+            cl.addWidget(w)
+            cl.addSpacing(8)
+        cl.addStretch()
+        self.en.toggled.connect(self._save)
         for w in (self.iv, self.ret, self.ct, self.mt):
             w.valueChanged.connect(self._save)
-        bar.addStretch()
+        self.root.addWidget(cfg)
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
+        bar.addWidget(QLabel("Période", objectName="muted"))
         self.range = QComboBox()
         self.range.addItems(list(self.RANGES))
+        self.range.setMinimumWidth(180)
         self.range.currentTextChanged.connect(lambda _: self.load())
         bar.addWidget(self.range)
+        bar.addStretch()
         b = QPushButton("Actualiser")
         b.clicked.connect(self.load)
         bar.addWidget(b)
         ex = QPushButton("Exporter CSV")
         ex.clicked.connect(self.export)
         bar.addWidget(ex)
-        clr = QPushButton("Effacer")
+        clr = QPushButton("Effacer l'historique")
         clr.setObjectName("danger")
         clr.clicked.connect(self._clear)
         bar.addWidget(clr)
         self.root.addLayout(bar)
 
         self.graph = TimelineGraph()
-        self.root.addWidget(QLabel("CPU (bleu) et mémoire (violet) — glissez le curseur pour rejouer",
+        self.root.addWidget(QLabel("CPU (cyan) et mémoire (violet) — glissez le curseur ou survolez la courbe pour rejouer",
                                    objectName="muted"))
         self.root.addWidget(self.graph)
         self.slider = QSlider(Qt.Horizontal)

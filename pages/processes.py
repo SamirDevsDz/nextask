@@ -33,6 +33,7 @@ class ProcessesPage(Page):
         super().__init__(sampler, parent)
         self.table = TablePanel(self.COLS, key_col=1, right_cols=(1, 4, 5, 6, 7))
         self.table.set_widths([220, 70, 90, 120, 70, 100, 100, 70, 130, 300])
+        self.table.set_bar_columns({4: 100, 5: psutil.virtual_memory().total})
         self.hide_sys = QCheckBox("Masquer les processus système")
         self.table.toolbar.insertWidget(1, self.hide_sys)
         self.hide_sys.toggled.connect(self.refresh)

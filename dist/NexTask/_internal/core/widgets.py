@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
                                QFrame, QProgressBar)
 
 ACCENT = "#3b82f6"
+STATUS_COLORS = {"OK": "#22c55e", "INFO": "#60a5fa", "ALERTE": "#f59e0b", "CRITIQUE": "#ef4444"}
 COLORS = {"cpu": "#3b82f6", "mem": "#a855f7", "disk": "#22c55e", "net": "#f59e0b",
           "gpu": "#ef4444", "freq": "#06b6d4"}
 
@@ -139,7 +140,7 @@ class UsageBar(QWidget):
 
 # ======================================================================= tableau
 class TableModel(QAbstractTableModel):
-    """Cellule = valeur simple ou tuple (texte affiché, clé de tri)."""
+    """Cellule = valeur simple ou tuple (texte affiché, clé de tri[, couleur])."""
 
     def __init__(self, headers):
         super().__init__()
@@ -164,6 +165,8 @@ class TableModel(QAbstractTableModel):
             if key is None:
                 return -1
             return key if isinstance(key, (int, float)) else str(key).lower()
+        if role == Qt.ForegroundRole and isinstance(cell, tuple) and len(cell) > 2 and cell[2]:
+            return QColor(cell[2])
         if role == Qt.TextAlignmentRole and idx.column() in self.align_right:
             return int(Qt.AlignRight | Qt.AlignVCenter)
         return None

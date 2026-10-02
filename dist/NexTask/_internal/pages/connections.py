@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QComboBox, QCheckBox
 
 from core.common import IS_WIN, BackgroundTask, run_cmd, confirm, info, is_admin
 from core.widgets import Page, TablePanel
+from core import audit
 
 STATE_FR = {"ESTABLISHED": "Établie", "LISTEN": "Écoute", "TIME_WAIT": "TIME_WAIT",
             "CLOSE_WAIT": "CLOSE_WAIT", "SYN_SENT": "SYN envoyé", "NONE": "—"}
@@ -131,7 +132,9 @@ class ConnectionsPage(Page):
             return
         try:
             psutil.Process(int(row[1])).kill()
+            audit.log("Fin de tâche (connexions)", f"{row[0]} (PID {row[1]}) -> {row[5]}")
         except psutil.Error as e:
+            audit.log("Fin de tâche (connexions)", f"{row[0]} (PID {row[1]})", f"ÉCHEC : {e}")
             info(self, "Erreur", str(e))
 
     def _block(self, row):
@@ -148,4 +151,6 @@ class ConnectionsPage(Page):
                            "dir=out", "action=block", f"remoteip={ip}"])
             out += run_cmd(["netsh", "advfirewall", "firewall", "add", "rule", f"name=NexTask block {ip}",
                             "dir=in", "action=block", f"remoteip={ip}"])
+            ok = "ok" in out.lower() or not out.strip()
+            audit.log("Pare-feu : blocage IP", f"{ip} ({row[0]})", "OK" if ok else out.strip())
             info(self, "Pare-feu", out.strip() or "Règles créées.")

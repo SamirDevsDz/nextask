@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QInputDialog, QComboBox
 
 from core.common import IS_WIN, BackgroundTask, run_cmd, powershell, confirm, info
 from core.widgets import Page, TablePanel
+from core import audit
 
 STATUS_FR = {"running": "En cours", "stopped": "Arrêté", "start_pending": "Démarrage…",
              "stop_pending": "Arrêt…", "paused": "En pause", "pause_pending": "Pause…",
@@ -102,11 +103,14 @@ class ServicesPage(Page):
                                            f"{labels[verb]} le service « {row[1] or row[0]} » ?\n"
                                            "Les services dépendants peuvent être affectés."):
             return
+        self._last = (labels[verb], row[0])
         if self.act.start(verb, row[0]):
             self.window().statusBar().showMessage(f"{labels[verb]} {row[0]}…")
 
     def _action_done(self, out):
         out = (out or "").strip()
+        act, name = getattr(self, "_last", ("Service", "?"))
+        audit.log(f"Service : {act}", name, "OK" if out.endswith("OK") else f"ÉCHEC : {out[-200:]}")
         if out and not out.endswith("OK"):
             info(self, "Résultat", out[-800:] + "\n\nAstuce : la plupart des actions exigent les droits administrateur.")
         self.window().statusBar().showMessage("Terminé", 3000)
@@ -117,11 +121,16 @@ class ServicesPage(Page):
         if not IS_WIN:
             choice, ok = QInputDialog.getItem(self, "Démarrage", row[0], ["enable", "disable"], 0, False)
             if ok and confirm(self, "Démarrage", f"systemctl {choice} {row[0]} ?"):
-                info(self, "Résultat", run_cmd(["systemctl", choice, row[0]]) or "OK")
+                out = run_cmd(["systemctl", choice, row[0]]) or "OK"
+                audit.log(f"Service : {choice}", row[0], out)
+                info(self, "Résultat", out)
                 self.load()
             return
         names = list(START_SC)
         choice, ok = QInputDialog.getItem(self, "Type de démarrage", f"Service {row[0]} :", names, 0, False)
         if ok and confirm(self, "Type de démarrage", f"Passer « {row[0]} » en {choice} ?"):
-            info(self, "Résultat", run_cmd(["sc", "config", row[0], "start=", START_SC[choice]]))
+            out = run_cmd(["sc", "config", row[0], "start=", START_SC[choice]])
+            audit.log("Service : type de démarrage", f"{row[0]} -> {choice}",
+                      "OK" if "SUCCESS" in out.upper() or "RÉUSSI" in out.upper() else out)
+            info(self, "Résultat", out)
             self.load()

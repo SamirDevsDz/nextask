@@ -189,11 +189,28 @@ class _Job(QRunnable):
             pass
 
 
+class _Tracker(QObject):
+    """Compte les tâches de fond « visibles » pour l'indicateur d'activité de l'interface."""
+    changed = Signal(int)
+
+    def __init__(self):
+        super().__init__()
+        self.count = 0
+
+    def add(self, n):
+        self.count = max(0, self.count + n)
+        self.changed.emit(self.count)
+
+
+tracker = _Tracker()
+
+
 class BackgroundTask:
     """Lance fn dans un thread ; évite les exécutions qui se chevauchent."""
 
-    def __init__(self, fn, on_done, on_error=None):
+    def __init__(self, fn, on_done, on_error=None, track=True):
         self.fn, self.on_done, self.on_error = fn, on_done, on_error
+        self.track = track
         self.busy = False
         self._job = None
 
@@ -201,6 +218,8 @@ class BackgroundTask:
         if self.busy:
             return False
         self.busy = True
+        if self.track:
+            tracker.add(1)
         job = _Job(self.fn, *args, **kwargs)
         job.signals.done.connect(self._finish)
         job.signals.error.connect(self._fail)
@@ -208,12 +227,17 @@ class BackgroundTask:
         QThreadPool.globalInstance().start(job)
         return True
 
-    def _finish(self, res):
+    def _release(self):
+        if self.busy and self.track:
+            tracker.add(-1)
         self.busy = False
+
+    def _finish(self, res):
+        self._release()
         self.on_done(res)
 
     def _fail(self, tb):
-        self.busy = False
+        self._release()
         print(tb, file=sys.stderr)
         if self.on_error:
             self.on_error(tb)

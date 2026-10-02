@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QVBoxLayout, QFrame, QL
 
 from core.common import IS_WIN, BackgroundTask, run_cmd, powershell, fmt_duration, info, confirm
 from core.widgets import Page, StatTile, LineGraph, COLORS
+from core import audit
 
 
 def list_power_plans():
@@ -172,7 +173,8 @@ class PowerPage(Page):
     def _apply_plan(self):
         guid = self.plans.currentData()
         if guid:
-            run_cmd(["powercfg", "/setactive", guid])
+            out = run_cmd(["powercfg", "/setactive", guid])
+            audit.log("Plan d'alimentation", self.plans.currentText(), out.strip() or "OK")
             self.plan_task.start()
             self.window().statusBar().showMessage("Plan d'alimentation appliqué", 3000)
 

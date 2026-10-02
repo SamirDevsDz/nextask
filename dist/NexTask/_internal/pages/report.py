@@ -286,10 +286,7 @@ class ReportPage(Page):
         hb.addStretch()
         rv.addLayout(hb)
         self.view = QTextBrowser()
-        self.view.setStyleSheet("QTextBrowser { background: white; color: black; border-radius: 12px; }")
-        self.view.setHtml("<div style='color:#64748b; font-family:Segoe UI, sans-serif; padding:40px; text-align:center'>"
-                          "<h2 style='color:#0f172a'>Aperçu du rapport</h2>"
-                          "<p>Renseignez le ticket, choisissez les sections puis cliquez sur « Générer le rapport ».</p></div>")
+        self.view.setStyleSheet("background: white; color: black;")
         rv.addWidget(self.view, 1)
         split.addWidget(right)
         split.setSizes([330, 900])

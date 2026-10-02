@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QInputDialog, QDialog, QVBoxLayout, QPlainTextEdit
 
 from core.common import IS_WIN, fmt_bytes, fmt_rate, fmt_ts, open_location, confirm, info
 from core.widgets import Page, TablePanel
+from core import audit
 
 if IS_WIN:
     PRIORITIES = {
@@ -86,21 +87,27 @@ class ProcessesPage(Page):
             info(self, "Erreur", str(e))
             return None
 
-    def _try(self, fn, ok_msg=None):
+    def _try(self, fn, ok_msg=None, action=None, target=""):
         try:
             fn()
             if ok_msg:
                 self.window().statusBar().showMessage(ok_msg, 4000)
+            if action:
+                audit.log(action, target)
         except psutil.AccessDenied:
             info(self, "Accès refusé", "Droits insuffisants. Relancez NexTask en administrateur.")
+            if action:
+                audit.log(action, target, "ÉCHEC : accès refusé")
         except psutil.Error as e:
             info(self, "Erreur", str(e))
+            if action:
+                audit.log(action, target, f"ÉCHEC : {e}")
 
     def kill(self, row):
         p = self._proc(row)
         if p and confirm(self, "Fin de tâche", f"Terminer « {row[0]} » (PID {row[1]}) ?\n"
                                                "Les données non enregistrées seront perdues."):
-            self._try(p.kill, f"{row[0]} terminé")
+            self._try(p.kill, f"{row[0]} terminé", "Fin de tâche", f"{row[0]} (PID {row[1]})")
 
     def kill_tree(self, row):
         p = self._proc(row)
@@ -119,17 +126,17 @@ class ProcessesPage(Page):
                     except psutil.Error:
                         pass
                 p.kill()
-            self._try(go, "Arborescence terminée")
+            self._try(go, "Arborescence terminée", "Fin d'arborescence", f"{row[0]} (PID {row[1]}) + {len(children)} enfants")
 
     def suspend(self, row):
         p = self._proc(row)
         if p and confirm(self, "Suspendre", f"Suspendre « {row[0]} » ?"):
-            self._try(p.suspend, f"{row[0]} suspendu")
+            self._try(p.suspend, f"{row[0]} suspendu", "Suspension processus", f"{row[0]} (PID {row[1]})")
 
     def resume(self, row):
         p = self._proc(row)
         if p:
-            self._try(p.resume, f"{row[0]} repris")
+            self._try(p.resume, f"{row[0]} repris", "Reprise processus", f"{row[0]} (PID {row[1]})")
 
     def set_priority(self, row):
         p = self._proc(row)
@@ -140,7 +147,7 @@ class ProcessesPage(Page):
         choice, ok = QInputDialog.getItem(self, "Priorité", f"Priorité de {row[0]} :", names,
                                           names.index(cur) if cur in names else 0, False)
         if ok:
-            self._try(lambda: p.nice(PRIORITIES[choice]), f"Priorité : {choice}")
+            self._try(lambda: p.nice(PRIORITIES[choice]), f"Priorité : {choice}", "Priorité processus", f"{row[0]} (PID {row[1]}) -> {choice}")
 
     def details(self, row):
         p = self._proc(row)

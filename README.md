@@ -9,6 +9,14 @@ Outil Windows en **Python + PySide6 + psutil** : 21 modules (supervision, sécur
 3. Pour tout voir (services, connexions de tous les processus, températures) : bouton **« Relancer en admin »** dans la barre d'état.
 4. Pour un `.exe` autonome : **`build.bat`** → `dist\NexTask\NexTask.exe` (demande l'élévation UAC automatiquement).
 
+## Interface (v3)
+
+- **Design system** (`core/design.py`) : thème « console SOC » sombre + thème clair, tokens de couleurs, espacements (grille de 4 px) et rayons ; contrastes vérifiés automatiquement (`audit_contrast()` : texte ≥ 4,5:1, éléments graphiques ≥ 3:1).
+- **Navigation** : menu latéral groupé (Surveillance, Système, Réseau, Sécurité, Opérations), repliable, icônes vectorielles maison, badge d'alertes sur l'Enregistreur.
+- **Palette de commandes** `Ctrl+K` : aller à n'importe quelle page ou lancer une action (bilan de sécurité, rapport, comparaison de référence…).
+- **Raccourcis** : `Ctrl+K` palette · `Ctrl+B` replier le menu · `Ctrl+1…9` pages · `Ctrl+T` thème · `F5` actualiser la page.
+- **Composants** : graphes lissés avec dégradé et valeur au survol, jauges circulaires animées, tuiles KPI, pastilles de sévérité (couleur + libellé) et mini-barres dans les tableaux, états vides explicites, notifications « toast », barre d'activité pendant les analyses.
+
 ## Modules
 
 | Module | Ce qu'il fait | Actions |

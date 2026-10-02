@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QVBoxLayout, QWidget, QPushButton, Q
 
 from core.common import IS_WIN, BackgroundTask, fmt_bytes, open_location
 from core.widgets import Page, TablePanel, UsageBar
+from core import design as d
 
 MAX_FILES_PER_DIR = 40
 
@@ -196,8 +197,8 @@ class DiskSpacePage(Page):
                                                    f"{fmt_bytes(u.free)} libres ({100 - u.percent:.0f} %)")
 
     def _temps(self, items):
-        self.temp_lbl.setText("<br>".join(f'<a href="{p}" style="color:#3b82f6">{p}</a> : <b>{fmt_bytes(s)}</b>' for p, s in items)
-                              + "<br><span style='color:gray'>Cliquez pour ouvrir le dossier.</span>")
+        self.temp_lbl.setText("<br>".join(f'<a href="{p}" style="color:{d.T("accent")}">{p}</a> : <b>{fmt_bytes(s)}</b>' for p, s in items)
+                              + "<br><span style='color:" + d.T("muted") + "'>Cliquez pour ouvrir le dossier.</span>")
 
     def _browse(self):
         d = QFileDialog.getExistingDirectory(self, "Dossier à analyser", self.target.currentText())
