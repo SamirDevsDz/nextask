@@ -1,4 +1,4 @@
-# NexTask — gestionnaire des tâches alternatif (inspiré de TMOG)
+# NexTask — gestionnaire des tâches alternatif
 
 Outil Windows en **Python + PySide6 + psutil** : 21 modules (supervision, sécurité, dépannage, rapport), thème clair/sombre, journal d'audit, syslog, sans dépendance lourde.
 
