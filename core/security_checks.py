@@ -79,7 +79,13 @@ POSTURE_PS = r"""
 $r=@{}
 try{$m=Get-MpComputerStatus -EA Stop; $r.def_av=$m.AntivirusEnabled; $r.def_rt=$m.RealTimeProtectionEnabled;
     $r.def_age=$m.AntivirusSignatureAge; $r.def_tamper=$m.IsTamperProtected; $r.def_mode=[string]$m.AMRunningMode}catch{$r.def_err=$_.Exception.Message}
-try{$r.fw=@(Get-NetFirewallProfile -EA Stop | ForEach-Object { @{n=[string]$_.Name; e=[bool]$_.Enabled} })}catch{}
+try{$r.fw=@(Get-NetFirewallProfile -PolicyStore ActiveStore -EA Stop | ForEach-Object { @{n=[string]$_.Name; e=[bool]$_.Enabled} })}catch{
+  try{$r.fw=@(Get-NetFirewallProfile -EA Stop | ForEach-Object { @{n=[string]$_.Name; e=[bool]$_.Enabled} })}catch{}}
+try{$r.net=@(Get-NetConnectionProfile -EA Stop | ForEach-Object { [string]$_.NetworkCategory })}catch{}
+try{$r.wsc_av=@(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -EA Stop | ForEach-Object {
+    @{n=[string]$_.displayName; s=[int64]$_.productState; p=[string]$_.pathToSignedProductExe} })}catch{$r.wsc='na'}
+try{$r.wsc_fw=@(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName FirewallProduct -EA Stop | ForEach-Object {
+    @{n=[string]$_.displayName; s=[int64]$_.productState} })}catch{}
 try{$b=Get-BitLockerVolume -MountPoint $env:SystemDrive -EA Stop; $r.bl=[string]$b.ProtectionStatus; $r.bl_pct=$b.EncryptionPercentage}catch{$r.bl='?'}
 try{$r.smb1=[bool](Get-SmbServerConfiguration -EA Stop).EnableSMB1Protocol}catch{}
 try{$r.admins=@(Get-LocalGroupMember -SID 'S-1-5-32-544' -EA Stop | ForEach-Object {[string]$_.Name})}catch{
@@ -91,9 +97,33 @@ try{$r.secureboot=[string](Confirm-SecureBootUEFI -EA Stop)}catch{$r.secureboot=
 try{$g=Get-LocalUser -EA Stop | Where-Object {$_.SID.Value -like '*-501'}; $r.guest=[bool]$g.Enabled}catch{}
 try{$a=Get-LocalUser -EA Stop | Where-Object {$_.SID.Value -like '*-500'}; $r.builtin_admin=[bool]$a.Enabled}catch{}
 try{$r.psv2=[string](Get-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -EA Stop).State}catch{}
+try{$r.chassis=@((Get-CimInstance Win32_SystemEnclosure -EA Stop).ChassisTypes | ForEach-Object {[int]$_})}catch{}
 $os=Get-CimInstance Win32_OperatingSystem; $r.os=[string]$os.Caption; $r.build=[string]$os.BuildNumber
 $r | ConvertTo-Json -Compress -Depth 4
 """
+
+
+_PROFILE_OF = {"DomainAuthenticated": "Domain", "Private": "Private", "Public": "Public"}
+
+
+def _wsc_product(x):
+    """Décode productState du Centre de sécurité Windows (WSC).
+    Format non documenté officiellement par Microsoft mais stable et largement utilisé :
+    octet du milieu 0x10/0x11 = protection activée ; dernier octet 0x00 = signatures à jour."""
+    try:
+        state = int(x.get("s") or 0)
+    except (TypeError, ValueError):
+        return None
+    name = x.get("n") or "?"
+    path = (x.get("p") or "").lower()
+    mid, low = (state >> 8) & 0xFF, state & 0xFF
+    low_name = name.lower()
+    ms = (low_name in ("windows defender", "microsoft defender antivirus", "microsoft defender", "windows firewall",
+                       "pare-feu windows", "pare-feu windows defender", "windows defender firewall")
+          or low_name.startswith(("windows defender", "microsoft defender"))
+          or "windows defender" in path or "windowsdefender" in path)
+    return {"name": name, "enabled": mid in (0x10, 0x11), "uptodate": low == 0x00, "microsoft": ms,
+            "state": hex(state)}
 
 
 def posture():
@@ -112,33 +142,78 @@ def posture():
     d = ps_json(POSTURE_PS, 120) or {}
     HKLM = winreg.HKEY_LOCAL_MACHINE
 
-    # --- Antivirus
+    # --- Antivirus : on interroge d'abord le Centre de sécurité Windows (WSC), qui connaît les produits tiers.
+    avs = [p for p in (_wsc_product(x) for x in as_list(d.get("wsc_av"))) if p]
+    third_av = [a for a in avs if not a["microsoft"]]
+    active_av = [a for a in avs if a["enabled"]]
+    active_third = [a for a in third_av if a["enabled"]]
+    if avs:
+        if active_av:
+            stale = [a for a in active_av if not a["uptodate"]]
+            add("Antivirus", "Protection antivirus active (Centre de sécurité)", "ALERTE" if stale else "OK",
+                ", ".join(f"{a['name']}{' (signatures non à jour)' if not a['uptodate'] else ''}" for a in active_av),
+                "Mettre à jour les signatures de l'antivirus." if stale else "")
+        else:
+            add("Antivirus", "Protection antivirus active (Centre de sécurité)", "CRITIQUE",
+                "Aucun antivirus actif : " + ", ".join(a["name"] for a in avs),
+                "Activer l'antivirus installé ou réactiver Microsoft Defender.")
+        if len([a for a in active_av if not a["microsoft"]]) > 1:
+            add("Antivirus", "Plusieurs antivirus tiers actifs", "ALERTE",
+                ", ".join(a["name"] for a in active_av if not a["microsoft"]),
+                "Garder un seul moteur temps réel (conflits, lenteurs).")
+    elif d.get("wsc") == "na":
+        add("Antivirus", "Centre de sécurité Windows", "INFO",
+            "Non disponible (Windows Server ?) — évaluation basée sur Defender seul")
+
     if "def_av" in d:
-        add("Antivirus", "Microsoft Defender actif", "OK" if d.get("def_av") else "CRITIQUE",
-            "Oui" if d.get("def_av") else f"Non ({d.get('def_mode', '')})",
-            "" if d.get("def_av") else "Vérifier qu'un autre antivirus/EDR est bien actif.")
-        add("Antivirus", "Protection en temps réel", "OK" if d.get("def_rt") else "CRITIQUE",
-            "Activée" if d.get("def_rt") else "Désactivée", "Réactiver la protection en temps réel.")
-        age = d.get("def_age")
-        if age is not None:
-            add("Antivirus", "Âge des signatures", "OK" if age <= 3 else "ALERTE" if age <= 7 else "CRITIQUE",
-                f"{age} jour(s)", "Forcer une mise à jour : Update-MpSignature.")
-        add("Antivirus", "Protection contre les falsifications", "OK" if d.get("def_tamper") else "ALERTE",
-            "Activée" if d.get("def_tamper") else "Désactivée", "Activer Tamper Protection (Sécurité Windows).")
-    else:
+        mode = d.get("def_mode", "") or "?"
+        if active_third:
+            names = ", ".join(a["name"] for a in active_third)
+            add("Antivirus", "Microsoft Defender", "INFO", f"Mode « {mode} » — remplacé par {names}",
+                "Normal : Defender passe en mode passif quand un antivirus tiers est actif.")
+        else:
+            add("Antivirus", "Moteur Microsoft Defender chargé", "OK" if d.get("def_av") else "CRITIQUE",
+                "Oui" if d.get("def_av") else f"Non ({mode})",
+                "" if d.get("def_av") else "Aucun antivirus tiers détecté : réactiver Defender.")
+            add("Antivirus", "Protection en temps réel (Defender)", "OK" if d.get("def_rt") else "CRITIQUE",
+                "Activée" if d.get("def_rt") else "Désactivée", "Réactiver la protection en temps réel.")
+            age = d.get("def_age")
+            if age is not None:
+                add("Antivirus", "Âge des signatures (Defender)", "OK" if age <= 3 else "ALERTE" if age <= 7 else "CRITIQUE",
+                    f"{age} jour(s)", "Forcer une mise à jour : Update-MpSignature.")
+            add("Antivirus", "Protection contre les falsifications", "OK" if d.get("def_tamper") else "ALERTE",
+                "Activée" if d.get("def_tamper") else "Désactivée", "Activer Tamper Protection (Sécurité Windows).")
+    elif not avs:
         add("Antivirus", "Microsoft Defender", "INFO", d.get("def_err", "Non disponible (autre antivirus/EDR ?)"))
 
-    # --- Pare-feu
+    # --- Pare-feu : état effectif (GPO incluses) ; un pare-feu tiers actif remplace celui de Windows
+    fws = [p for p in (_wsc_product(x) for x in as_list(d.get("wsc_fw"))) if p]
+    third_fw = [f for f in fws if f["enabled"] and not f["microsoft"]]
+    if third_fw:
+        add("Pare-feu", "Pare-feu actif (Centre de sécurité)", "OK", ", ".join(f["name"] for f in third_fw))
+    in_use = {_PROFILE_OF.get(c, c) for c in as_list(d.get("net"))}
     for p in as_list(d.get("fw")):
-        add("Pare-feu", f"Profil {p.get('n')}", "OK" if p.get("e") else "CRITIQUE",
-            "Activé" if p.get("e") else "Désactivé", "Activer le pare-feu sur ce profil.")
+        name = p.get("n")
+        if p.get("e"):
+            add("Pare-feu", f"Pare-feu Windows — profil {name}", "OK", "Activé")
+        elif third_fw:
+            add("Pare-feu", f"Pare-feu Windows — profil {name}", "INFO",
+                f"Désactivé — géré par {third_fw[0]['name']}", "Normal si le pare-feu tiers filtre bien ce profil.")
+        else:
+            used = name in in_use
+            add("Pare-feu", f"Pare-feu Windows — profil {name}", "CRITIQUE" if used or not in_use else "ALERTE",
+                "Désactivé" + (" (profil du réseau actuel)" if used else " (profil non utilisé actuellement)" if in_use else ""),
+                "Aucun pare-feu tiers détecté : activer le pare-feu Windows sur ce profil.")
 
     # --- Chiffrement / démarrage
     bl = d.get("bl", "?")
-    add("Chiffrement", f"BitLocker ({os.environ.get('SystemDrive', 'C:')})",
-        "OK" if bl == "On" else "INFO" if bl == "?" else "ALERTE",
-        {"On": "Protégé", "Off": "Non protégé", "?": "Inconnu (droits admin requis)"}.get(bl, bl),
-        "Chiffrer le disque système (poste mobile surtout).")
+    mobile = any(int(c) in (8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32) for c in as_list(d.get("chassis")))
+    bl_status = "OK" if bl == "On" else "INFO" if bl == "?" else ("ALERTE" if mobile or not d.get("chassis") else "INFO")
+    add("Chiffrement", f"BitLocker ({os.environ.get('SystemDrive', 'C:')})", bl_status,
+        {"On": "Protégé", "Off": "Non protégé", "?": "Inconnu (droits admin requis)"}.get(bl, bl)
+        + ("" if bl != "Off" else " — portable" if mobile else " — poste fixe" if d.get("chassis") else ""),
+        "Portable : chiffrer le disque système (risque de vol)." if mobile else
+        "Poste fixe : recommandé si des données sensibles y sont stockées.")
     sb = d.get("secureboot", "?")
     add("Démarrage", "Secure Boot", "OK" if sb == "True" else "INFO" if sb == "?" else "ALERTE",
         {"True": "Activé", "False": "Désactivé", "?": "Inconnu (admin requis / BIOS legacy)"}.get(sb, sb))

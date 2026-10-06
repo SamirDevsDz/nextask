@@ -56,6 +56,18 @@ Outil Windows en **Python + PySide6 + psutil** : 21 modules (supervision, sécur
 
 Toutes les tables : recherche, tri par colonne, clic droit, **export CSV**. Toute action destructive demande une confirmation.
 
+## Compilation automatique (GitHub Actions)
+
+Le fichier `.github/workflows/build.yml` compile NexTask sur un runner Windows de GitHub :
+
+| Déclencheur | Ce qui se passe |
+|---|---|
+| `git push` sur `master` / pull request | Analyse statique (pyflakes) → test de fumée (`tests/smoke_test.py` : 21 pages, thèmes, contraste) → `NexTask.exe` → zip + empreinte SHA-256 téléchargeables dans l'onglet **Actions** (30 jours) |
+| `git tag v3.1.0` puis `git push origin v3.1.0` | Même chaîne, puis création d'une **Release** GitHub avec le zip et le fichier `.sha256` |
+
+La version affichée dans l'application (barre d'état) vient du tag, ou de `dev-<commit>` hors tag.
+Test local avant de pousser : `python tests/smoke_test.py` (code 0 = OK).
+
 ## Structure
 
 ```

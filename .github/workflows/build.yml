@@ -1,0 +1,116 @@
+# Compilation automatique de NexTask
+#  - à chaque push / pull request : analyse statique + test de fumée + NexTask.exe (artefact téléchargeable 30 jours)
+#  - à chaque tag vX.Y.Z      : publication d'une Release GitHub avec le zip et son empreinte SHA-256
+# Les actions sont épinglées par empreinte de commit (protection de la chaîne d'approvisionnement).
+name: Compilation NexTask
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Tests + exécutable Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Installer Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Déterminer la version
+        id: ver
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          if ($env:REF_TYPE -eq 'tag') { $v = $env:REF_NAME.TrimStart('v') } else { $v = "dev-" + $env:SHA.Substring(0, 7) }
+          if ($v -notmatch '^[0-9A-Za-z.\-]+$') { throw "Version invalide : $v" }
+          Set-Content -Path core/version.py -Encoding utf8 -Value ('__version__ = "' + $v + '"')
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Version : $v"
+
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller pyflakes
+
+      - name: Analyse statique (pyflakes)
+        run: python -m pyflakes .
+
+      - name: Test de fumée (21 pages, thèmes, contraste)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python tests/smoke_test.py
+
+      - name: Compiler NexTask.exe (PyInstaller)
+        run: >
+          pyinstaller --noconfirm --windowed --name NexTask --uac-admin --icon nextask.ico
+          --add-data "core;core" --add-data "pages;pages" --add-data "nextask.ico;." main.py
+
+      - name: Vérifier et empaqueter
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          if (-not (Test-Path dist/NexTask/NexTask.exe)) { throw "NexTask.exe introuvable" }
+          $zip = "NexTask-$($env:VERSION)-win64.zip"
+          Compress-Archive -Path dist/NexTask/* -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path "$zip.sha256" -Encoding ascii -Value "$hash  $zip"
+          "ZIP=$zip" >> $env:GITHUB_ENV
+          Write-Host "$zip  ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) Mo)  SHA-256 $hash"
+
+      - name: Publier l'artefact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: NexTask-${{ steps.ver.outputs.version }}
+          path: |
+            ${{ env.ZIP }}
+            ${{ env.ZIP }}.sha256
+          retention-days: 30
+          if-no-files-found: error
+
+  release:
+    name: Release GitHub
+    needs: build
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write          # droit d'écriture limité à ce job, après les tests
+    steps:
+      - name: Récupérer l'artefact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: NexTask-${{ needs.build.outputs.version }}
+          path: release
+
+      - name: Créer la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release create "$TAG" release/* --repo "$REPO" --title "NexTask $TAG" --generate-notes

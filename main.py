@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core import design  # noqa: E402
 from core.common import APP_NAME, IS_WIN, is_admin, relaunch_as_admin, fmt_duration, tracker  # noqa: E402
 from core.sampler import Sampler  # noqa: E402
+from core.version import __version__  # noqa: E402
 from core.shell import (Sidebar, TopBar, BusyBar, CommandPalette, Central, ToastStatusBar, shortcut)  # noqa: E402
 from core.theme import stylesheet  # noqa: E402
 from core.widgets import IconChip  # noqa: E402
@@ -135,7 +136,7 @@ class MainWindow(QMainWindow):
         self.setStatusBar(sb)
         self.lbl = QLabel("")
         sb.addWidget(self.lbl, 1)
-        self.ver = QLabel(f"{APP_NAME} · v3")
+        self.ver = QLabel(f"{APP_NAME} · v{__version__}")
         sb.addPermanentWidget(self.ver)
 
         # --- barre supérieure
